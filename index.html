@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Real-time movie streaming platform</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: #f4f4f4;
+        }
+
+        header {
+            background-color: #d13535;
+            color: blue;
+            padding: 20px;
+            text-align: center;
+        }
+
+        .search-Filter {
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+            margin-top: 10px;
+        }
+        .movie-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+            gap: 20px;
+            padding: 20px;
+        }
+        .movie-card {
+            background-color: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+            overflow: hidden;
+            cursor: pointer;
+        }
+        .movie-card img {
+            width: 100%;
+            height: 250px;
+            object-fit: cover;
+        }
+        .movie-card h3, .movie-card p {
+            margin: 10px;
+        }
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.7);
+            justify-content: center;
+            align-items: center;
+        }
+        .modal-content {
+            background-color: white;
+            padding: 20px;
+            border-radius: 8px;
+            width: 80%;
+            max-width: 600px;
+            position: relative;
+        }
+        .close-modal {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            font-size: 24px;
+            cursor: pointer;
+        }
+        .loading-spinner {
+            text-align: center;
+            padding: 20px;
+            font-size: 18px;
+        }
+        .error-message {
+            color: red;
+            text-align: center;
+            padding: 10px;
+
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>Movie Platform Interface</h1>
+        <div class="search-Filter">
+            <input type="text" id="searchBar" placeholder="Search by title, genre or tags">
+            <select id="genreFilter">
+                <option value="">All Genres</option>
+            </select>
+            <select id="ratingFilter">
+                <option value="1">All Ratings</option>
+                <option value="5">5 Stars</option>
+                <option value="4">4 Stars & Above</option>
+                <option value="3">3 Stars & Above</option>
+            </select>
+            <select id="sortBy">
+                <option value="rating_desc">Rating: High to Low</option>
+                <option value="rating_asc">Rating: Low to High</option>
+                <option value="data_desc">Release Date: Newest First</option>
+                <option value="data_asc">Release Date: Oldest First</option>
+            </select>
+        </div>
+    </header>
+    <main>
+        <div id="loading" class="loading-spinner">Loading...</div>
+        <div id="errorMessage" class="error-message"></div>
+        <div class="movie-grid" id="movieContainer"></div>
+        <div class="pagination">
+            <button id="prevPage" disabled>Previous</button>
+            <span id="currentPage">1</span>
+            <button id="nextPage">Next</button>
+        </div>
+    </main>
+    <div id="movieModal" class="modal">
+        <div id="modal-content">
+            <span class="close-modal">&times;</span>
+            <div id="modalDetails"></div>
+        </div>
+    </div>
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.2.0/firebase-app.js";
+        import { getAnalytics } from "https://www.gstatic.com/firebasejs/11.2.0/firebase-getAnalytics.js";
+        const firebaseConfig = {
+            apiKey: "AIzaSyCBXyk5Y3ggaoZvP7PBbaA_csXUtjrrtxk",
+            authDomain: "movie-platform-214ad.firebaseapp.com",
+            projectId: "movie-platform-214ad",
+            storageBucket: "movie-platform-214ad.firebasestorage.app",
+            messagingSenderId: "841221671954",
+            appId: "1:841221671954:web:f22558c93d0fff27e45ccb",
+            measurementId: "G-DE66EV0RGN"
+          };
+          //initialize Firebase
+          const app = initializeApp(firebaseConfig);
+          const analytics = getAnalytics(app);
+
+          let movies = [];
+          let filteredMovies = [];
+          let currentPage = 1;
+          let pageSize = 10;
+          
+          //DOM elements
+          const movieContainer = document.getElementById('movieContainer');
+          const searchBar = document.getElementById('searchBar');
+          const genreFilter = document.getElementById('genreFilter');
+          const ratingFilter = document.getElementById('ratingFilter');
+          const sortBy = document.getElementById('sortBy');
+          const loading = document.getElementById('loading');
+          const errorMessage = document.getElementById("errorMessage");
+          const prevPage = document.getElementById('prevPage');
+          const nextPage = document.getElementById('nextPage');
+          const currentPageDisplay = document.getElementById('currentPage');
+          const movieModal = document.getElementById('movieModal');
+          const modalDetails = document.getElementById('modalDetails');
+          const closeModal = document.getElementById('closeModal');
+
+          //Fetch Movies from firebase
+          function fetchMovies() {
+            showLoading();
+            analytics.on('value', (snapshot) => {
+                movies = Object.values(snapshot.val());
+                updateFilters();
+                hideLoading();
+            }, (error) => {
+                showError("Failed to load movies! Please try again later!!");
+                hideLoading();
+            })
+          }
+
+          //Filtering
+          function updateFilters() {
+            const searchQuery = searchBar.value.toLowerCase();
+            const selectedGenre = genreFilter.value;
+            const selectedRating = parseFloat(ratingFilter.value);
+
+            filteredMovies = movies.filter(movie => {
+                const matchesSearch = movie.title.toLowerCase().includes(searchQuery) || movie.genre.toLowerCase().includes(searchQuery) || movie.tags.some(tag => tag.toLowerCase().includes(searchQuery));
+                const matchesGenre = selectedGenre ? movie.genre === selectedGenre : true;
+                const matchesRating = selectedRating ? movie.rating >= selectedRating : true;
+                return matchesSearch && matchesGenre && matchesRating;
+            });
+            applySorting();
+            renderMovies();
+          }
+
+          //Sorting
+          function applySorting() {
+            const [key, order] = sortBy.value.split('_');
+            filteredMovies.sort((a,b) => order === 'asc' ? a[key] - b[key] : b[key] - a[key]);
+          }
+
+          //Render Movies
+          function renderMovies() {
+            const start = (currentPage - 1) * pageSize;
+            const end = start + pageSize;
+            const moviesToShow = filteredMovies.slice(start, end);
+
+            movieContainer.innerHTML = moviesToShow.map(movie => `
+            <div class="movie-card" data-id="${movie.id}">
+                <img src="${movie.thumbnail}" alt="${movie.id}">
+                <h3>${movie.title}</h3>
+                <p>${movie.genre} ${movie.releaseDate}</p>
+                <p>Rating: ${movie.rating}</p>
+                <button class="favourite-btn" data-id="${movie.id}">${movie.isFavourite ? '' : ''}</button>
+            </div>
+            `).join('');
+            updatePagination();
+          }
+
+          //Pagination
+          function updatePagination() {
+            prevPage.disabled = currentPage === 1;
+            nextPage.disabled = currentPage === Math.ceil(filteredMovies.length/pageSize);
+            currentPageDisplay.textContent = currentPage;
+          }
+
+          // Adding Event Listeners
+          searchBar.addEventListener('input', () => {
+            currentPage = 1;
+            updateFilters();
+          });
+
+          genreFilter.addEventListener('change', updateFilters);
+          ratingFilter.addEventListener('change', updateFilters);
+          sortBy.addEventListener('change', updateFilters);
+
+          prevPage.addEventListener('click', () => {
+            if(currentPage > 1) {
+                currentPage--;
+                renderMovies();
+            }
+          });
+          nextPage.addEventListener('click', () => {
+            if(currentPage < Math.ceil(filteredMovies.length/pageSize)) {
+                currentPage++;
+                renderMovies();
+            }
+          });
+          movieContainer.addEventListener('click', (e) => {
+            if(e.target.closest('.movie-card')) {
+                const movieId = e.target.closest('.movie-card').dataset.id;
+                const movie = movies.find(m => m.id === movieId);
+                showMovieModal(movie);
+            }
+          });
+          closeModal.addEventListener('click', () => {
+            movieModal.style.display = 'none';
+          });
+          //show movie modal
+          function showMovieModal(movie) {
+            modalDetails.innerHTML = `
+            <h2>${movie.title}<h2>
+                <p><strong>Director:</strong>${movie.director}</p>
+                <p><strong>Cast:</strong>${movie.cast.join(', ')}</p>
+                <p><strong>Duration:</strong>${movie.duration}</p>
+                <p><strong>Release Date:</strong>${movie.releaseDate}</p>
+                <p><strong>Rating:</strong>${movie.rating}</p>
+                <p><strong>Tags:</strong>${movie.tags.join(', ')}</p>
+          `;
+        movieModal.style.display = 'flex';
+    }
+    function showLoading() {
+        loading.style.display = 'block';
+    }
+    function hideLoading() {
+        loading.style.display = 'none';
+    }
+    function showError(message) {
+        errorMessage.textContent = message;
+        errorMessage.style.display = 'block';
+    }
+    fetchMovies();
+    </script>
+
+</body>
+</html>
